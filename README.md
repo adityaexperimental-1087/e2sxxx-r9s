@@ -10,7 +10,7 @@
 <p align="center">ExtremeROM Nexus is a work-in-progress custom firmware for Samsung Galaxy devices.</p>
 
 <p align="center">
-  <a href="https://t.me/extremerom">💬 Telegram</a>
+  <a href="https://t.me/monsterrom6">💬 Telegram</a>
   <a href="https://github.com/ExtremeXT/ExtremeROM/wiki">📖 Wiki</a>
   <a href="https://github.com/ExtremeXT/ExtremeROM/blob/fifteen/CHANGELOG.md">📝 Changelog</a>
   <a href="https://github.com/ExtremeXT/ExtremeROM/blob/fifteen/MAINTAINERS">🧑‍💻 Maintainers</a>
