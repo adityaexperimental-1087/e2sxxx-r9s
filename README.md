@@ -1,12 +1,6 @@
 <h1 align="center">
   <img loading="lazy" src="readme-res/banner.jpg"/>
 </h1>
-<p align="center">
-  <a href="https://github.com/ExtremeXT/ExtremeROM/blob/fifteen/LICENSE"><img loading="lazy" src="https://img.shields.io/github/license/ExtremeXT/ExtremeROM?style=for-the-badge&logo=github"/></a>
-  <a href="https://github.com/ExtremeXT/ExtremeROM/commits/fifteen"><img loading="lazy" src="https://img.shields.io/github/last-commit/ExtremeXT/ExtremeROM/fifteen?style=for-the-badge"/></a>
-  <a href="https://github.com/ExtremeXT/ExtremeROM/stargazers"><img loading="lazy" src="https://img.shields.io/github/stars/ExtremeXT/ExtremeROM?style=for-the-badge"/></a>
-  <a href="https://github.com/ExtremeXT/ExtremeROM/graphs/contributors"><img loading="lazy" src="https://img.shields.io/github/contributors/ExtremeXT/ExtremeROM?style=for-the-badge"/></a>
-</p>
 <p align="center">ExtremeROM Nexus is a work-in-progress custom firmware for Samsung Galaxy devices.</p>
 
 <p align="center">
@@ -24,9 +18,8 @@ ExtremeROM Nexus supports devices using the Exynos 9820, Exynos 990, Exynos 2100
 Any form of contribution, suggestions, bug report or feature request for the project will be welcome.
 
 # Features
-- Based on the latest stable OneUI 7 Galaxy S24 FE firmware
-- All software features from S24 FE
-- S25 Ultra CSC, ringtones and more
+- Based on the latest stable OneUI 8 Galaxy ZFold7 FE firmware
+- All software features from ZFold7 FE
 - Moderately Debloated
 - Heavily DeKnoxed
 - Full SELinux Support
