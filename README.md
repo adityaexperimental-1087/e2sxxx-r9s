@@ -43,7 +43,7 @@ Any form of contribution, suggestions, bug report or feature request for the pro
 - More that I can't remember right now and will have to be added in the future
 
 # Bugs
-See the <a href="https://github.com/ExtremeXT/ExtremeROM/issues">⚠ Issues</a> tab
+-Bluetooth, some small Camerastuffs, needs Selinux Permissive.
 
 # Licensing
 This project is licensed under the terms of the [GNU General Public License v3.0](LICENSE). External dependencies might be distributed under a different license, such as:
