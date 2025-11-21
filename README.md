@@ -5,9 +5,6 @@
 
 <p align="center">
   <a href="https://t.me/monsterrom6">💬 Telegram</a>
-  <a href="https://github.com/ExtremeXT/ExtremeROM/wiki">📖 Wiki</a>
-  <a href="https://github.com/ExtremeXT/ExtremeROM/blob/fifteen/CHANGELOG.md">📝 Changelog</a>
-  <a href="https://github.com/ExtremeXT/ExtremeROM/blob/fifteen/MAINTAINERS">🧑‍💻 Maintainers</a>
 </p>
 
 # What is MonsterROM?
