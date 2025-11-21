@@ -15,8 +15,8 @@ MonsterROM support device using the Exynos 2100 SoC
 Any form of contribution, suggestions, bug report or feature request for the project will be welcome.
 
 # Features
-- Based on the latest stable OneUI 8 Galaxy ZFold7 FE firmware
-- All software features from ZFold7 FE
+- Based on the latest stable OneUI 8.5 Galaxy S25 Ultra firmware
+- All software features from S25 Ultra
 - Moderately Debloated
 - Heavily DeKnoxed
 - Full SELinux Support
