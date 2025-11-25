@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [o1s, t2s, p3s, r9s]
+        target: [o1s, t2s, p3s, r9s, x1s, y2s, z3s, r8s]
 
     steps:
       - name: Checkout repo
