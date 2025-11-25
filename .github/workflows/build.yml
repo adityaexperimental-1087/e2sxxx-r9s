@@ -1,4 +1,4 @@
-name: Build ExtremeROM
+name: Build MonsterROM
 
 on:
   workflow_dispatch:
