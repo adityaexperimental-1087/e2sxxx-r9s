@@ -1,8 +1,16 @@
-name: Build ExtremeROM
+name: Build PeaceROM
 
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - 'oneui8.5'
 
+permissions:
+  contents: read
+  actions: write
+  
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -10,11 +18,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [o1s, t2s, p3s, r9s]
+        target: [r9s]
 
     steps:
+      - name: Check network speed
+        id: speedtest
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y speedtest-cli curl jq
+          SPEED=$(speedtest-cli --secure --simple | grep 'Download' | awk '{print int($2)}')
+          echo "Download speed: $SPEED Mbps"
+          echo "speed=$SPEED" >> $GITHUB_OUTPUT
+          if [ "$SPEED" -lt 1500 ]; then
+            echo "Speed too low! ($SPEED Mbps, need ~1500 Mbps for 200 MB/s) Retrying..."
+            curl -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/${{ github.repository }}/actions/workflows/build.yml/dispatches \
+              -d "{\"ref\":\"${{ github.ref_name }}\"}"
+            exit 1
+          fi
+          
       - name: Checkout repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           submodules: 'recursive'
 
@@ -38,18 +64,16 @@ jobs:
         run: |
           sudo apt update
           DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
-            p7zip-full jq attr ccache clang ffmpeg golang \
+            jq attr ccache clang ffmpeg golang \
             libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
             libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp \
             curl xxd patchelf flex bison libarchive-tools build-essential pcre2-utils
           sudo modprobe erofs f2fs
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          echo -n "${{ secrets.PLATFORM_KEY_PK8 }}" | base64 --decode > security/extremerom_platform.pk8
-          echo -n "${{ secrets.PLATFORM_KEY_PEM }}" | base64 --decode > security/extremerom_platform.x509.pem
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -84,3 +108,18 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/make_rom.sh --force
+
+      - name: Upload to GoFile
+        run: |
+          ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
+          RESPONSE=$(curl -s -F "file=@$ZIP_FILE" -F "token=${{ secrets.GOFILE_TOKEN }}" -F "folderId=${{ secrets.GOFILE_FOLDER_ID }}" "https://upload-eu-par.gofile.io/uploadFile")
+
+          echo "Uploaded successfully! Download link:"
+          echo "$RESPONSE" | jq -r '.data.downloadPage'
+
+          echo "MD5:"
+          md5sum "$ZIP_FILE"
+
+          echo "SHA256:"
+          sha256sum "$ZIP_FILE"
