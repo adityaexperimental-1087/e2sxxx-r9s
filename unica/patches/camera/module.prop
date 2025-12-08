@@ -1,4 +1,4 @@
-id=mass_cam
-name=Low-end Samsung Camera app
+id=camera
+name=Camera patches
 author=salvogiangri
-description=Checks for target camera app variant and replace accordingly if required.
+description=Applies camera-specific patches in work dir.

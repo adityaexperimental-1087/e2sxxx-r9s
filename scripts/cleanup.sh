@@ -23,7 +23,6 @@ PRINT_USAGE()
 {
     echo "Usage: cleanup <type> (<type>...)" >&2
     echo " - all ($OUT_DIR)" >&2
-    echo " - kernel ($KERNEL_TMP_DIR)" >&2
     echo " - odin ($ODIN_DIR)" >&2
     echo " - fw ($FW_DIR)" >&2
     echo " - work_dir ($WORK_DIR)" >&2
@@ -43,10 +42,6 @@ while [ "$#" != 0 ]; do
             LOG "- Cleaning everything..."
             rm -rf "$OUT_DIR"
             break
-            ;;
-        "kernel")
-            LOG "- Cleaning kernel dir(s)..."
-            rm -rf "$KERNEL_TMP_DIR"*
             ;;
         "odin")
             LOG "- Cleaning Odin firmwares dir..."
@@ -76,6 +71,7 @@ while [ "$#" != 0 ]; do
             exit 1
         ;;
     esac
+
     shift
 done
 

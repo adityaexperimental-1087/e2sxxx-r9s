@@ -16,29 +16,7 @@
 #
 
 # [
-source "$SRC_DIR/scripts/utils/common_utils.sh"
-
-_GET_PROP_LOCATION()
-{
-    local FILES
-    FILES="$(_GET_PROP_FILES_PATH "$1")"
-
-    if IS_VALID_PARTITION_NAME "$1"; then
-        shift
-    fi
-
-    _CHECK_NON_EMPTY_PARAM "PROP" "$1" || return 1
-
-    local PROP="$1"
-    local MATCHES=()
-    while IFS= read -r f; do
-        if grep -q "^$PROP=" "$f" 2> /dev/null; then
-            MATCHES+=("$f")
-        fi
-    done <<< "$FILES"
-
-    printf '%s\n' "${MATCHES[@]}"
-}
+source "$SRC_DIR/scripts/utils/smali_utils.sh"
 # ]
 
 # ABORT <message>
@@ -79,8 +57,8 @@ APPLY_PATCH()
 
     DECODE_APK "$PARTITION" "$FILE" || return 1
 
-    LOG "- Applying \"$(grep "^Subject:" "$PATCH" | sed "s/.*PATCH] //; s/.*PATCH .\/.] //")\" to /$PARTITION/$FILE"
-    EVAL "cd \"$APKTOOL_DIR/$PARTITION/${FILE//system\//}\"; patch -p1 -s -t -N --no-backup-if-mismatch < \"$PATCH\"; cd - &> /dev/null"
+    LOG "- Applying \"$(grep "^Subject:" "$PATCH" | sed "s/.*PATCH] //")\" to /$PARTITION/$FILE"
+    EVAL "LC_ALL=C git apply --directory=\"$APKTOOL_DIR/$PARTITION/${FILE//system\//}\" --verbose --unsafe-paths \"$PATCH\"" || return 1
 }
 
 # DECODE_APK <partition> <apk/jar>
@@ -109,7 +87,7 @@ DOWNLOAD_FILE()
     local OUTPUT="$2"
 
     mkdir -p "$(dirname "$OUTPUT")"
-    EVAL "curl -L -o \"$OUTPUT\" \"$URL\""
+    curl -L -# -o "$OUTPUT" "$URL"
     return $?
 }
 
@@ -122,23 +100,53 @@ GET_GALAXY_STORE_DOWNLOAD_URL()
     local PACKAGE="$1"
     local DEVICES
     local OS
+    local ONEUI
+    local PROTOCOL
+
+    # Galaxy S25 Ultra EUR_OPENX
+    # Galaxy S22 Ultra GBL_OPENX
+    DEVICES=("SM-S938B" "SM-S901E")
+
+    OS="$(GET_PROP "system" "ro.build.version.sdk")"
+    ONEUI="$(GET_PROP "system" "ro.build.version.oneui")"
+
+    if [ ! "$OS" ]; then
+        # Fallback to Android 16
+        OS="36"
+    fi
+    if [ ! "$ONEUI" ]; then
+        # Fallback to One UI 8.0
+        ONEUI="80000"
+    fi
+
+    PROTOCOL+="<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>"
+    PROTOCOL+="<SamsungProtocol networkType=\"0\" openApiVersion=\"$OS\" deviceModel=\"DEVICE\""
+    PROTOCOL+=" mcc=\"262\" mnc=\"01\" csc=\"EUX\" version=\"7.7\""
+    PROTOCOL+=" deviceFeature=\"locale=en_GB||abi32=armeabi-v7a:armeabi||abi64=arm64-v8a||oneUiVersion=$ONEUI\">"
+    PROTOCOL+="<request id=\"2303\" numParam=\"2\">"
+    PROTOCOL+="<param name=\"stduk\">0</param>"
+    PROTOCOL+="<param name=\"productID\">PRODUCTID</param>"
+    PROTOCOL+="</request>"
+    PROTOCOL+="</SamsungProtocol>"
+
     local OUT
-
-    # Galaxy S23 Ultra EUR_OPENX, EUX CSC
-    DEVICES+=("deviceId=SM-S928B&mcc=262&mnc=01&csc=EUX")
-    # Galaxy S25 Ultra CHN_OPENX, CHC CSC
-    DEVICES+=("deviceId=SM-S9380&mcc=460&mnc=00&csc=CHC")
-
-    OS="sdkVer="
-    OS+="$(GET_PROP "system" "ro.build.version.sdk")"
-    OS+="&oneUiVersion="
-    OS+="$(GET_PROP "system" "ro.build.version.oneui")"
-
+    local REQUEST
     for i in "${DEVICES[@]}"; do
-        OUT="$(curl -L -s "https://vas.samsungapps.com/stub/stubDownload.as?appId=$PACKAGE&$i&$OS&extuk=0191d6627f38685f&pd=0")"
-        if grep -q "Download URI Available" <<< "$OUT"; then
-            grep "downloadURI" <<< "$OUT" | cut -d ">" -f 2 | sed -e 's/<!\[CDATA\[//g; s/\]\]//g'
-            return $?
+        OUT="$(curl -L -s "https://vas.samsungapps.com/stub/stubUpdateCheck.as?appId=$PACKAGE&versionCode=0&deviceId=$i&mcc=262&mnc=01&csc=EUX&sdkVer=$OS&oneUiVersion=$ONEUI")"
+        OUT="$(grep -o -P "(?<=<productId>)[^<]+" <<< "$OUT")"
+        if [ ! "$OUT" ]; then
+            continue
+        fi
+
+        REQUEST="$PROTOCOL"
+        REQUEST="${REQUEST//DEVICE/$i}"
+        REQUEST="${REQUEST//PRODUCTID/$OUT}"
+
+        OUT="$(curl -L -s "https://uk-odc.samsungapps.com/ods.as" -H "Content-Type: text/plain" -d "$REQUEST")"
+        OUT="$(grep -o -P "(?<=<value name=\"downLoadURI\">)[^<]+" <<< "$OUT")"
+        if [ "$OUT" ]; then
+            echo "${OUT//amp;/}"
+            return 0
         fi
     done
 
@@ -146,21 +154,28 @@ GET_GALAXY_STORE_DOWNLOAD_URL()
     return 1
 }
 
-# GET_FLOATING_FEATURE_CONFIG "<config>"
-# Returns the supplied config value.
+# GET_FLOATING_FEATURE_CONFIG "<file>" "<config>"
+# Returns the supplied config value, file can be omitted.
 GET_FLOATING_FEATURE_CONFIG()
 {
+    local FILE
+    if [ "$2" ]; then
+        FILE="$1"
+        shift
+    else
+        FILE="$WORK_DIR/system/system/etc/floating_feature.xml"
+    fi
+
     _CHECK_NON_EMPTY_PARAM "CONFIG" "$1" || return 1
 
     local CONFIG="$1"
-    local FILE="$WORK_DIR/system/system/etc/floating_feature.xml"
 
     if [ ! -f "$FILE" ]; then
         LOGE "File not found: ${FILE//$WORK_DIR/}"
         return 1
     fi
 
-    grep -o -P "(?<=<$CONFIG>)[^<]+" "$FILE" 2> /dev/null
+    grep -o -P "(?<=<$CONFIG>)[^<]+" "$FILE" 2> /dev/null || true
 }
 
 # HEX_PATCH "<file>" "<old pattern>" "<new pattern>"
@@ -183,18 +198,13 @@ HEX_PATCH()
     FROM="$(tr "[:upper:]" "[:lower:]" <<< "$FROM")"
     TO="$(tr "[:upper:]" "[:lower:]" <<< "$TO")"
 
-    if xxd -p "$FILE" | tr -d "\n" | tr -d " " | grep -q "$TO"; then
-        LOGW "\"$TO\" already applied in ${FILE//$WORK_DIR/}"
-        return 0
-    fi
-
-    if ! xxd -p "$FILE" | tr -d "\n" | tr -d " " | grep -q "$FROM"; then
+    if ! xxd -p -c 0 "$FILE" | grep -q "$FROM"; then
         LOGE "No \"$FROM\" match in ${FILE//$WORK_DIR/}"
         return 1
     fi
 
     LOG "- Patching \"$FROM\" to \"$TO\" in ${FILE//$WORK_DIR/}"
-    xxd -p "$FILE" | tr -d "\n" | tr -d " " | sed "s/$FROM/$TO/" | xxd -r -p > "$FILE.tmp"
+    xxd -p -c 0 "$FILE" | sed "s/$FROM/$TO/" | xxd -r -p > "$FILE.tmp"
     mv "$FILE.tmp" "$FILE"
 
     return 0
@@ -220,7 +230,7 @@ SET_FLOATING_FEATURE_CONFIG()
     if grep -q "$CONFIG" "$FILE"; then
         if [[ "$VALUE" == "-d" ]] || [[ "$VALUE" == "--delete" ]]; then
             LOG "- Deleting \"$CONFIG\" config in /system/system/etc/floating_feature.xml"
-            sed -i "/$CONFIG/d" "$FILE"
+            sed -i "/<$CONFIG>/d" "$FILE"
         else
             LOG "- Replacing \"$CONFIG\" config with \"$VALUE\" in /system/system/etc/floating_feature.xml"
             sed -i "$(sed -n "/<${CONFIG}>/=" "$FILE") c\ \ \ \ <${CONFIG}>${VALUE}</${CONFIG}>" "$FILE"
@@ -233,90 +243,6 @@ SET_FLOATING_FEATURE_CONFIG()
         fi
         echo "    <${CONFIG}>${VALUE}</${CONFIG}>" >> "$FILE"
         echo "</SecFloatingFeatureSet>" >> "$FILE"
-    fi
-
-    return 0
-}
-
-# SET_PROP "<partition>" "<prop>" "<value>"
-# Sets the supplied prop to the desidered value, partition name CANNOT be omitted.
-# "-d" or "--delete" can be passed as value to delete the prop.
-SET_PROP()
-{
-    _CHECK_NON_EMPTY_PARAM "PARTITION" "$1" || return 1
-    _CHECK_NON_EMPTY_PARAM "PROP" "$2" || return 1
-
-    local PARTITION="$1"
-    local PROP="$2"
-    local VALUE="$3"
-
-    if ! IS_VALID_PARTITION_NAME "$PARTITION"; then
-        LOGE "\"$PARTITION\" is not a valid partition name"
-        return 1
-    fi
-
-    if [ "$(GET_PROP "$PARTITION" "$PROP")" ]; then
-        local FILES
-        FILES="$(_GET_PROP_LOCATION "$PARTITION" "$PROP")"
-
-        while IFS= read -r f; do
-            if [[ "$VALUE" == "-d" ]] || [[ "$VALUE" == "--delete" ]]; then
-                LOG "- Deleting \"$PROP\" prop in ${f//$WORK_DIR/}"
-                sed -i "/^$PROP/d" "$f"
-            else
-                LOG "- Replacing \"$PROP\" prop with \"$VALUE\" in ${f//$WORK_DIR/}"
-
-                local LINES
-                LINES="$(sed -n "/^${PROP}\b/=" "$f")"
-                for l in $LINES; do
-                    sed -i "$l c${PROP}=${VALUE}" "$f"
-                done
-            fi
-        done <<< "$FILES"
-    elif [[ "$VALUE" != "-d" ]] && [[ "$VALUE" != "--delete" ]]; then
-        local FILE
-
-        case "$PARTITION" in
-            "system")
-                FILE="$WORK_DIR/system/system/build.prop"
-                ;;
-            "system_ext")
-                if $TARGET_HAS_SYSTEM_EXT; then
-                    FILE="$WORK_DIR/system_ext/etc/build.prop"
-                else
-                    FILE="$WORK_DIR/system/system/system_ext/etc/build.prop"
-                fi
-                ;;
-            "system_dlkm")
-                FILE="$WORK_DIR/system_dlkm/etc/build.prop"
-                ;;
-            "vendor")
-                FILE="$WORK_DIR/vendor/build.prop"
-                ;;
-            "vendor_dlkm")
-                FILE="$WORK_DIR/vendor_dlkm/etc/build.prop"
-                ;;
-            "odm_dlkm")
-                FILE="$WORK_DIR/vendor/odm_dlkm/etc/build.prop"
-                ;;
-            "odm")
-                FILE="$WORK_DIR/odm/etc/build.prop"
-                ;;
-            "product")
-                FILE="$WORK_DIR/product/etc/build.prop"
-                ;;
-        esac
-
-        if [ ! -f "$FILE" ]; then
-            LOGW "File not found: ${FILE//$WORK_DIR/}"
-            return 0
-        fi
-
-        LOG "- Adding \"$PROP\" prop with \"$VALUE\" in ${FILE//$WORK_DIR/}"
-        if ! grep -q "Added by scripts" "$FILE"; then
-            echo "# Added by scripts/utils/module_utils.sh" >> "$FILE"
-        fi
-        echo "$PROP=$VALUE" >> "$FILE"
     fi
 
     return 0

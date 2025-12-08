@@ -5,10 +5,15 @@
 # - DO NOT add add any parenthesis or statements (eg. "fabriccrypto" and NOT "expanttypeattribute ... (fabriccrypto)")
 # - DO NOT add unnecessary types or remove the existing ones unless they aren't necessary anymore for all devices
 
-LOG_STEP_IN "- Patching system_ext,productmappings & policy.cil"
-ADD_TO_WORK_DIR "p3sxxx" "system_ext" "etc/selinux/mapping" 0 2000 755 "u:object_r:system_file:s0"
-ADD_TO_WORK_DIR "p3sxxx" "product" "etc/selinux/mapping" 0 2000 755 "u:object_r:product_file:s0"
-LOG_STEP_OUT
+# One UI 8.0 additions
+ENTRIES+="
+heatmap_default
+heatmap_default_exec
+"
+
+DUPLICATES+="
+init.svc.vendor.wvkprov_server_hal
+"
 
 # One UI 7.0 additions
 ENTRIES+="
@@ -40,17 +45,10 @@ hal_dsms_service
 uwb_regulation_skip_prop
 "
 
-# One UI 5.0.0 additions
-ENTRIES+="
-perf_prop
-qb_id_prop
-teeregistryd_app
-"
-
 # [
 GET_SYSTEM_EXT()
 {
-    if $TARGET_HAS_SYSTEM_EXT; then
+    if $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION; then
         echo "system_ext"
     else
         echo "system/system/system_ext"
@@ -83,3 +81,17 @@ for e in $ENTRIES; do
         fi
     fi
 done
+
+for e in $DUPLICATES; do
+    if grep -q "^$e.*" "$WORK_DIR/$(GET_SYSTEM_EXT)/etc/selinux/system_ext_property_contexts"; then
+        # the problematic entry is currently present in system_ext, check if we need to remove it
+        if grep -q "^$e.*" "$WORK_DIR/vendor/etc/selinux/vendor_property_contexts"; then
+            # the problematic entry is found in target vendor
+            LOG "- \"$e\" SELinux duplicate entry found. Removing"
+            sed -i "s/^$e/#SEC_DUPLICATE: $e/g" "$WORK_DIR/vendor/etc/selinux/vendor_property_contexts"
+        fi
+    fi
+done
+
+unset ENTRIES DUPLICATES CIL_NAME VENDOR_API_LIST
+unset -f GET_SYSTEM_EXT

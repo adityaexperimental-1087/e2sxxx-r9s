@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright (C) 2023 Salvo Giangreco
+# Copyright (C) 2025 Salvo Giangreco
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,126 +16,110 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-# shellcheck disable=SC2001
-
-set -Ee
-
 # [
-GET_LATEST_FIRMWARE()
+source "$SRC_DIR/scripts/utils/firmware_utils.sh" || exit 1
+
+DEVICE=""
+MODEL=""
+CSC=""
+IMEI=""
+LATEST_FIRMWARE=""
+
+UPDATE_BLOBS()
 {
-    curl -s --retry 5 --retry-delay 5 "https://fota-cloud-dn.ospserver.net/firmware/$REGION/$MODEL/version.xml" \
-        | grep latest | sed 's/^[^>]*>//' | sed 's/<.*//'
+    local BLOBS
+    local PREBUILTS_DIR="$SRC_DIR/prebuilts/samsung/$DEVICE"
+    local FILE_PATH
+
+    if [ -d "$PREBUILTS_DIR/system" ]; then
+        BLOBS+="$(find "$PREBUILTS_DIR/system" ! -type d)"
+        BLOBS="${BLOBS//$PREBUILTS_DIR/system}"
+    fi
+    if [ -d "$PREBUILTS_DIR/product" ]; then
+        [ "$BLOBS" ] && BLOBS+=$'\n'
+        BLOBS+="$(find "$PREBUILTS_DIR/product" ! -type d)"
+        BLOBS="${BLOBS//$PREBUILTS_DIR\//}"
+    fi
+    if [ -d "$PREBUILTS_DIR/vendor" ]; then
+        [ "$BLOBS" ] && BLOBS+=$'\n'
+        BLOBS+="$(find "$PREBUILTS_DIR/vendor" ! -type d)"
+        BLOBS="${BLOBS//$PREBUILTS_DIR\//}"
+    fi
+    if [ -d "$PREBUILTS_DIR/system_ext" ]; then
+        [ "$BLOBS" ] && BLOBS+=$'\n'
+        BLOBS+="$(find "$PREBUILTS_DIR/system_ext" ! -type d)"
+        BLOBS="${BLOBS//$PREBUILTS_DIR\//}"
+    fi
+    BLOBS="$(LC_ALL=C sort <<< "$BLOBS")"
+
+    for i in $BLOBS; do
+        if [[ "$i" == *.[0-9][0-9] ]]; then
+            [[ "$i" == *".00" ]] || continue
+            i="${i%.*}"
+        fi
+        FILE_PATH="$PREBUILTS_DIR/${i//system\/system\//system/}"
+
+        if [ ! -f "$FW_DIR/${MODEL}_${CSC}/$i" ]; then
+            LOGE "File not found: ${FW_DIR//$SRC_DIR\//}/${MODEL}_${CSC}/$i"
+            exit 1
+        fi
+
+        LOG "- Updating prebuilts/samsung/$DEVICE/$i"
+
+        if [ ! -L "$FW_DIR/${MODEL}_${CSC}/$i" ] && \
+                [ "$(wc -c "$FW_DIR/${MODEL}_${CSC}/$i" | cut -d " " -f 1)" -gt "52428800" ]; then
+            EVAL "rm \"$FILE_PATH.\"*" || exit 1
+            EVAL "split -d -b 52428800 \"$FW_DIR/${MODEL}_${CSC}/$i\" \"$FILE_PATH.\"" || exit 1
+        else
+            EVAL "cp -a \"$FW_DIR/${MODEL}_${CSC}/$i\" \"$FILE_PATH\"" || exit 1
+        fi
+    done
+
+    EVAL "cp -a \"$FW_DIR/${MODEL}_${CSC}/.extracted\" \"$PREBUILTS_DIR/.current\"" || exit 1
 }
-#]
+# ]
 
-if [ "$#" != 1 ]; then
-    echo "Usage: update_prebuilt_blobs <path>"
+if [[ "$#" != "2" ]]; then
+    echo "Usage: update_prebuilt_blobs <device> <firmware>" >&2
     exit 1
 fi
 
-if [ ! -d "$SRC_DIR/$1" ]; then
-    echo "Folder not found: $SRC_DIR/$1"
+DEVICE="$1"
+shift
+if [ ! -d "$SRC_DIR/prebuilts/samsung/$DEVICE" ]; then
+    LOGE "Folder not found: prebuilts/samsung/$DEVICE"
     exit 1
 fi
 
-MODULE="$SRC_DIR/$1"
-BLOBS=""
-FIRMWARE=""
+PARSE_FIRMWARE_STRING "$1" || exit 1
 
-if [ -d "$MODULE/system" ]; then
-    BLOBS+="$(find "$MODULE/system" -type f)"
-    BLOBS="${BLOBS//$MODULE/system}"
-fi
-if [ -d "$MODULE/product" ]; then
-    [[ "$BLOBS" ]] && BLOBS+=$'\n'
-    BLOBS+="$(find "$MODULE/product" -type f)"
-    BLOBS="${BLOBS//$MODULE\//}"
-fi
-if [ -d "$MODULE/vendor" ]; then
-    [[ "$BLOBS" ]] && BLOBS+=$'\n'
-    BLOBS+="$(find "$MODULE/vendor" -type f)"
-    BLOBS="${BLOBS//$MODULE\//}"
-fi
-if [ -d "$MODULE/system_ext" ]; then
-    [[ "$BLOBS" ]] && BLOBS+=$'\n'
-    BLOBS+="$(find "$MODULE/system_ext" -type f)"
-    BLOBS="${BLOBS//$MODULE\//}"
+LATEST_FIRMWARE="$(GET_LATEST_FIRMWARE "$MODEL" "$CSC")"
+if [ ! "$LATEST_FIRMWARE" ]; then
+    LOGE "Latest available firmware could not be fetched"
+    exit 1
 fi
 
-case "$1" in
-    "prebuilts/samsung/a26xxx")
-        FIRMWARE="SM-A266B/EUX/350439761193107"
-        ;;
-    "prebuilts/samsung/a73xqxx")
-        FIRMWARE="SM-A736B/SEK/352828291234563"
-        ;;
-    "prebuilts/samsung/b0sxxx")
-        FIRMWARE="SM-S908B/EUX/350048582870148"
-        ;;
-    "prebuilts/samsung/b6qxxx")
-        FIRMWARE="SM-F956B/EUX/351451341950251"
-        ;;
-    "prebuilts/samsung/dm3qxxx")
-        FIRMWARE="SM-S918B/EUX/350196551234562"
-        ;;
-    "prebuilts/samsung/e1sxxx")
-        FIRMWARE="SM-S921B/EUX/350070120202022"
-        ;;
-    "prebuilts/samsung/e2sxxx")
-        FIRMWARE="SM-S926B/EUX/355622360977567"
-        ;;
-    "prebuilts/samsung/gts10fewifixx")
-        FIRMWARE="SM-X520/EUX/R52Y30G0M0T"
-        ;;
-    "prebuilts/samsung/p3sxxx")
-        FIRMWARE="SM-G998B/AUT/352731458300849"
-        ;;
-    "prebuilts/samsung/pa3qzcx")
-        FIRMWARE="SM-S9380/CHC/355534491000674"
-        ;;
-    "prebuilts/samsung/r12sxxx")
-        FIRMWARE="SM-S721B/EUX/351273090276500"
-        ;;
-    *)
-        echo "Firmware not set for path $1"
-        exit 1
-        ;;
-esac
+LOG_STEP_IN true "Starting update_prebuilt_blobs for prebuilts/samsung/$DEVICE"
+LOG "- Current firmware: $(cat "$SRC_DIR/prebuilts/samsung/$DEVICE/.current" 2> /dev/null)"
+LOG "- Latest available firmware: $LATEST_FIRMWARE"
 
-MODEL=$(echo -n "$FIRMWARE" | cut -d "/" -f 1)
-REGION=$(echo -n "$FIRMWARE" | cut -d "/" -f 2)
-
-[ -z "$(GET_LATEST_FIRMWARE)" ] && exit 1
-if [[ "$(GET_LATEST_FIRMWARE)" == "$(cat "$MODULE/.current")" ]]; then
-    echo "Nothing to do."
+if [[ "$LATEST_FIRMWARE" == "$(cat "$SRC_DIR/prebuilts/samsung/$DEVICE/.current" 2> /dev/null)" ]]; then
+    LOG_STEP_IN
+    LOG "\033[0;33m! Nothing to do\033[0m"
     exit 0
 fi
 
-echo -e "Updating $MODULE blobs\n"
+LOG_STEP_OUT
 
-export SOURCE_FIRMWARE="$FIRMWARE"
-export TARGET_FIRMWARE="$FIRMWARE"
-export SOURCE_EXTRA_FIRMWARES=""
-export TARGET_EXTRA_FIRMWARES=""
-"$SRC_DIR/scripts/download_fw.sh" --force --ignore-target
-"$SRC_DIR/scripts/extract_fw.sh" --force --ignore-target
+LOG_STEP_IN true "Downloading firmware"
+"$SRC_DIR/scripts/download_fw.sh" --ignore-source --ignore-target "$MODEL/$CSC/${IMEI:=$SERIAL_NO}" || exit 1
+LOG_STEP_OUT
 
-for i in $BLOBS; do
-    if [[ "$i" == *[0-9] ]]; then
-        i="${i%.*}"
-    fi
-    OUT="$MODULE/${i//system\/system\///system/}"
+LOG_STEP_IN true "Extracting firmware"
+"$SRC_DIR/scripts/extract_fw.sh" --ignore-source --ignore-target "$MODEL/$CSC/${IMEI:=$SERIAL_NO}" || exit 1
+LOG_STEP_OUT
 
-    [[ -e "$FW_DIR/${MODEL}_${REGION}/$i" ]] || continue
-
-    if [[ "$(wc -c "$FW_DIR/${MODEL}_${REGION}/$i" | cut -d " " -f 1)" -gt "52428800" ]]; then
-        rm "$OUT."*
-        split -d -b 52428800 "$FW_DIR/${MODEL}_${REGION}/$i" "$OUT."
-    else
-        cp -a "$FW_DIR/${MODEL}_${REGION}/$i" "$OUT"
-    fi
-done
-
-cp -a "$FW_DIR/${MODEL}_${REGION}/.extracted" "$MODULE/.current"
+LOG_STEP_IN true "Updating blobs"
+UPDATE_BLOBS || exit 1
 
 exit 0

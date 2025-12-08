@@ -16,8 +16,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-set -e
-
 # [
 source "$SRC_DIR/scripts/utils/build_utils.sh" || exit 1
 
@@ -39,20 +37,17 @@ GET_WORK_DIR_HASH()
 PREPARE_SCRIPT()
 {
     while [ "$#" != 0 ]; do
-        case "$1" in
-            "-f" | "--force")
-                FORCE=true
-                ;;
-            "--no-rom-zip")
-                BUILD_ZIP=false
-                ;;
-            *)
-                echo "Usage: make_rom [options]"
-                echo " -f, --force : Force build"
-                echo " --no-rom-zip : Do not build ROM zip"
-                exit 1
-                ;;
-        esac
+        if [[ "$1" == "--force" ]] || [[ "$1" == "-f" ]]; then
+            FORCE=true
+        elif [[ "$1" == "--no-rom-zip" ]]; then
+            BUILD_ZIP=false
+        else
+            if [[ "$1" == "-"* ]]; then
+                LOGE "Unknown option: $1"
+            fi
+            PRINT_USAGE
+            exit 1
+        fi
 
         shift
     done
@@ -123,12 +118,6 @@ if $BUILD_ROM; then
     "$SRC_DIR/scripts/internal/create_work_dir.sh" || exit 1
     LOG_STEP_OUT
 
-    if [ -d "$SRC_DIR/unica/patches" ]; then
-        LOG_STEP_IN true "Applying ROM patches"
-        "$SRC_DIR/scripts/internal/apply_modules.sh" "$SRC_DIR/unica/patches" || exit 1
-        LOG_STEP_OUT
-    fi
-
     if [ -d "$SRC_DIR/platform/$TARGET_PLATFORM/patches" ]; then
         LOG_STEP_IN true "Applying platform patches"
         "$SRC_DIR/scripts/internal/apply_modules.sh" "$SRC_DIR/platform/$TARGET_PLATFORM/patches" || exit 1
@@ -137,6 +126,11 @@ if $BUILD_ROM; then
     if [ -d "$SRC_DIR/target/$TARGET_CODENAME/patches" ]; then
         LOG_STEP_IN true "Applying device patches"
         "$SRC_DIR/scripts/internal/apply_modules.sh" "$SRC_DIR/target/$TARGET_CODENAME/patches" || exit 1
+        LOG_STEP_OUT
+    fi
+    if [ -d "$SRC_DIR/unica/patches" ]; then
+        LOG_STEP_IN true "Applying ROM patches"
+        "$SRC_DIR/scripts/internal/apply_modules.sh" "$SRC_DIR/unica/patches" || exit 1
         LOG_STEP_OUT
     fi
 
@@ -168,13 +162,9 @@ if $BUILD_ROM; then
     echo -n "$(GET_WORK_DIR_HASH)" > "$WORK_DIR/.completed"
 fi
 
-if [ -n "$GITHUB_ACTIONS" ]; then
-    bash "$SRC_DIR/scripts/cleanup.sh" fw kernel
-fi
-
-if $BUILD_TAR; then
-    LOG_STEP_IN true "Creating tar"
-    "$SRC_DIR/scripts/internal/build_odin_package.sh" || exit 1
+if $BUILD_ZIP; then
+    LOG_STEP_IN true "Creating zip"
+    "$SRC_DIR/scripts/internal/build_flashable_zip.sh" || exit 1
     LOG_STEP_OUT
 fi
 

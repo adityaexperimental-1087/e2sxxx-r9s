@@ -29,6 +29,13 @@ FILE=""
 INPUT_FILE=""
 OUTPUT_PATH=""
 
+THREAD_COUNT=$(awk -v max="$(nproc)" '/MemTotal/ {
+  tc = int(($2 + 1048575) / 2097152);
+  print (tc < 1 ? 1 : (tc > max ? max : tc));
+}' /proc/meminfo)
+
+[ -n "$GITHUB_ACTIONS" ] && THREAD_COUNT=1
+
 BUILD()
 {
     if [ ! -d "$OUTPUT_PATH" ]; then
@@ -43,14 +50,23 @@ BUILD()
     cp -a "$OUTPUT_PATH/original/META-INF" "$OUTPUT_PATH/build/apk/META-INF"
 
     # Build APK with --shorten-resource-paths (https://developer.android.com/tools/aapt2#optimize_options)
-    EVAL "apktool b -api 29 -j \"2\" -p \"$FRAMEWORK_DIR\" \"$OUTPUT_PATH\"" || exit 1
+    EVAL "apktool b -j \"$THREAD_COUNT\" -p \"$FRAMEWORK_DIR\" -srp \"$OUTPUT_PATH\"" || exit 1
 
     local FILE_NAME
     FILE_NAME="$(basename "$INPUT_FILE")"
 
-    LOG "- Zipaligning ${INPUT_FILE//$WORK_DIR/}"
-    EVAL "zipalign -p 4 \"$OUTPUT_PATH/dist/$FILE_NAME\" \"$OUTPUT_PATH/dist/temp\"" || exit 1
-    mv -f "$OUTPUT_PATH/dist/temp" "$OUTPUT_PATH/dist/$FILE_NAME"
+    if [[ "$INPUT_FILE" == *".apk" ]]; then
+        local CERT_PREFIX="aosp"
+        $ROM_IS_OFFICIAL && CERT_PREFIX="unica"
+
+        LOG "- Signing ${INPUT_FILE//$WORK_DIR/}"
+        EVAL "signapk \"$SRC_DIR/security/${CERT_PREFIX}_platform.x509.pem\" \"$SRC_DIR/security/${CERT_PREFIX}_platform.pk8\" \"$OUTPUT_PATH/dist/$FILE_NAME\" \"$OUTPUT_PATH/dist/temp.apk\"" || exit 1
+        mv -f "$OUTPUT_PATH/dist/temp.apk" "$OUTPUT_PATH/dist/$FILE_NAME"
+    else
+        LOG "- Zipaligning ${INPUT_FILE//$WORK_DIR/}"
+        EVAL "zipalign -p 4 \"$OUTPUT_PATH/dist/$FILE_NAME\" \"$OUTPUT_PATH/dist/temp\"" || exit 1
+        mv -f "$OUTPUT_PATH/dist/temp" "$OUTPUT_PATH/dist/$FILE_NAME"
+    fi
 
     mkdir -p "$(dirname "$INPUT_FILE")"
     mv -f "$OUTPUT_PATH/dist/$FILE_NAME" "$INPUT_FILE"
@@ -93,13 +109,7 @@ DECODE()
     # - Disabled debug info
     # - Use .locals directive instead of the .registers one
     # - Use a sequential numbering scheme for labels
-    if [[ "$INPUT_FILE" == *rro_*.apk ]]; then
-        EVAL "apktool d -b -j \"2\" -o \"$OUTPUT_PATH\" -p \"$FRAMEWORK_DIR\" -t \"$FRAMEWORK_TAG\" \"$INPUT_FILE\"" || exit 1
-    elif [[ "$INPUT_FILE" == *SystemUI.apk ]]; then
-        EVAL "apktool d -b -api 29 -j \"2\" -o \"$OUTPUT_PATH\" -p \"$FRAMEWORK_DIR\" -t \"$FRAMEWORK_TAG\" \"$INPUT_FILE\"" || exit 1
-    else
-        EVAL "apktool d -b -r -api 29 -j \"2\" -o \"$OUTPUT_PATH\" -p \"$FRAMEWORK_DIR\" -t \"$FRAMEWORK_TAG\" \"$INPUT_FILE\"" || exit 1
-    fi
+    EVAL "apktool d --no-debug-info -j \"$THREAD_COUNT\" -o \"$OUTPUT_PATH\" -p \"$FRAMEWORK_DIR\" -t \"$FRAMEWORK_TAG\" \"$INPUT_FILE\"" || exit 1
 
     # https://github.com/iBotPeaches/Apktool/issues/3615
     if [[ "$INPUT_FILE" == *"framework.jar" ]]; then
@@ -154,7 +164,7 @@ PREPARE_SCRIPT()
     local FILE_PATH="$WORK_DIR"
     case "$PARTITION" in
         "system_ext")
-            if $TARGET_HAS_SYSTEM_EXT; then
+            if $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION; then
                 FILE_PATH+="/system_ext"
             else
                 FILE_PATH+="/system/system/system_ext"

@@ -32,8 +32,8 @@ APPLY_MODULE()
         return 1
     fi
 
-    if [ -d "$MODPATH/$TARGET_SINGLE_SYSTEM_IMAGE" ]; then
-        MODPATH="$MODPATH/$TARGET_SINGLE_SYSTEM_IMAGE"
+    if [ -d "$MODPATH/$TARGET_OS_SINGLE_SYSTEM_IMAGE" ]; then
+        MODPATH="$MODPATH/$TARGET_OS_SINGLE_SYSTEM_IMAGE"
     fi
 
     if [ ! -f "$MODPATH/module.prop" ]; then
@@ -43,7 +43,7 @@ APPLY_MODULE()
         return 0
     else
         MODNAME="$(grep "^name" "$MODPATH/module.prop" | sed "s/name=//")"
-        MODAUTH="$(grep "^author" "$MODPATH/module.prop" | sed "s/author=//" | sed "s/, /, @/")"
+        MODAUTH="$(grep "^author" "$MODPATH/module.prop" | sed "s/author=//" | sed "s/, /, @/g")"
     fi
 
     LOG_STEP_IN "- Processing \"$MODNAME\" by @$MODAUTH"
@@ -54,8 +54,6 @@ APPLY_MODULE()
         [ -d "$MODPATH/system" ] && ADD_TO_WORK_DIR "$MODPATH" "system" "." 0 0 755 "u:object_r:system_file:s0"
         [ -d "$MODPATH/system_ext" ] && ADD_TO_WORK_DIR "$MODPATH" "system_ext" "." 0 0 755 "u:object_r:system_file:s0"
         [ -d "$MODPATH/vendor" ] && ADD_TO_WORK_DIR "$MODPATH" "vendor" "." 0 2000 755 "u:object_r:vendor_file:s0"
-        [ -d "$MODPATH/optics" ] && ADD_TO_WORK_DIR "$MODPATH" "optics" "." 0 0 755 u:object_r:vendor_configs_file:s0
-        [ -d "$MODPATH/prism" ] && ADD_TO_WORK_DIR "$MODPATH" "prism" "." 0 0 755 u:object_r:vendor_configs_file:s0
     fi
 
     READ_AND_APPLY_PROPS "$MODPATH"
@@ -136,6 +134,6 @@ fi
 
 while IFS= read -r f; do
     APPLY_MODULE "$f"
-done < <(find "$1" -mindepth 1 -maxdepth 1 -type d | sort)
+done < <(find "$1" -mindepth 1 -maxdepth 1 -type d | LC_ALL=C sort)
 
 exit 0

@@ -106,6 +106,28 @@ _GET_PROP_FILES_PATH()
     printf '%s\n' "${FILES[@]}"
 }
 
+_GET_PROP_LOCATION()
+{
+    local FILES
+    FILES="$(_GET_PROP_FILES_PATH "$1")"
+
+    if IS_VALID_PARTITION_NAME "$1"; then
+        shift
+    fi
+
+    _CHECK_NON_EMPTY_PARAM "PROP" "$1" || return 1
+
+    local PROP="$1"
+    local MATCHES=()
+    while IFS= read -r f; do
+        if grep -q "^$PROP=" "$f" 2> /dev/null; then
+            MATCHES+=("$f")
+        fi
+    done <<< "$FILES"
+
+    printf '%s\n' "${MATCHES[@]}"
+}
+
 _GET_SELINUX_LABEL()
 {
     _CHECK_NON_EMPTY_PARAM "PARTITION" "$1" || return 1
@@ -123,7 +145,7 @@ _GET_SELINUX_LABEL()
             FC_FILE="$WORK_DIR/vendor/etc/selinux/vendor_file_contexts"
             ;;
         "system_ext")
-            if $TARGET_HAS_SYSTEM_EXT; then
+            if $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION; then
                 FC_FILE="$WORK_DIR/system_ext/etc/selinux/system_ext_file_contexts"
             else
                 FC_FILE="$WORK_DIR/system/system/system_ext/etc/selinux/system_ext_file_contexts"
@@ -226,7 +248,7 @@ ADD_TO_WORK_DIR()
             SOURCE_FILE+="/system/system_ext/$FILE"
         fi
 
-        if $TARGET_HAS_SYSTEM_EXT; then
+        if $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION; then
             TARGET_FILE+="/system_ext/$FILE"
         else
             PARTITION="system"
@@ -250,7 +272,7 @@ ADD_TO_WORK_DIR()
         if [ -e "$SOURCE_FILE.00" ]; then
             LOG "- Adding $(sed -e "s|$WORK_DIR||" -e "s|/\.||" <<< "$TARGET_FILE") from ${SOURCE//$SRC_DIR\//}"
             mkdir -p "$(dirname "$TARGET_FILE")"
-            EVAL "cat \"$SOURCE_FILE.\"* > \"$TARGET_FILE\"" || exit 1
+            EVAL "cat \"$SOURCE_FILE.\"[0-9][0-9] > \"$TARGET_FILE\"" || exit 1
         else
             LOGE "File not found: ${SOURCE_FILE//$SRC_DIR\//}"
             return 1
@@ -308,7 +330,7 @@ ADD_TO_WORK_DIR()
         FILES="$(find "${SOURCE_FILE%/.}")"
         FILES="${FILES//$SOURCE\//}"
         [[ "$PARTITION" == "system" ]] && FILES="${FILES//system\/system\//system/}"
-        $TARGET_HAS_SYSTEM_EXT || FILES="${FILES//system_ext\//system/system_ext/}"
+        $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION || FILES="${FILES//system_ext\//system/system_ext/}"
 
         while IFS= read -r f; do
             IS_VALID_PARTITION_NAME "$f" && continue
@@ -404,7 +426,7 @@ DELETE_FROM_WORK_DIR()
         FILE="${FILE:1}"
     done
 
-    if ! $TARGET_HAS_SYSTEM_EXT && [[ "$PARTITION" == "system_ext" ]]; then
+    if ! $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION && [[ "$PARTITION" == "system_ext" ]]; then
         PARTITION="system"
         FILE="system/system_ext/$FILE"
     fi
@@ -412,7 +434,7 @@ DELETE_FROM_WORK_DIR()
     local FILE_PATH="$WORK_DIR"
     case "$PARTITION" in
         "system_ext")
-            if $TARGET_HAS_SYSTEM_EXT; then
+            if $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION; then
                 FILE_PATH+="/system_ext"
             else
                 FILE_PATH+="/system/system/system_ext"
@@ -530,7 +552,47 @@ IS_VALID_PARTITION_NAME()
     # https://android.googlesource.com/platform/build/+/refs/tags/android-15.0.0_r1/tools/releasetools/common.py#131
     [[ "$PARTITION" == "system" ]] || [[ "$PARTITION" == "vendor" ]] || [[ "$PARTITION" == "product" ]] || \
         [[ "$PARTITION" == "system_ext" ]] || [[ "$PARTITION" == "odm" ]] || [[ "$PARTITION" == "vendor_dlkm" ]] || \
-        [[ "$PARTITION" == "odm_dlkm" ]] || [[ "$PARTITION" == "system_dlkm" ]] || [[ "$PARTITION" == "optics" ]] || [[ "$PARTITION" == "prism" ]]
+        [[ "$PARTITION" == "odm_dlkm" ]] || [[ "$PARTITION" == "system_dlkm" ]]
+}
+
+# READ_BYTES_AT <file> <offset> <bytes>
+# Reads the desidered amount of bytes from the supplied file.
+READ_BYTES_AT()
+{
+    _CHECK_NON_EMPTY_PARAM "FILE" "$1" || return 1
+    _CHECK_NON_EMPTY_PARAM "OFFSET" "$2" || return 1
+    _CHECK_NON_EMPTY_PARAM "BYTES" "$3" || return 1
+
+    local FILE="$1"
+    local OFFSET="$2"
+    local BYTES="$3"
+
+    if [ ! -f "$FILE" ]; then
+        LOGE "File not found: ${FILE//$SRC_DIR\//}"
+        return 1
+    fi
+
+    local FILE_SIZE
+    FILE_SIZE="$(wc -c "$FILE" | cut -d " " -f 1)"
+    if ! [[ "$OFFSET" =~ ^[+-]?[0-9]+$ ]] || [[ "$OFFSET" -gt "$FILE_SIZE" ]]; then
+        LOGE "Offset value not valid: $OFFSET"
+        return 1
+    fi
+    if ! [[ "$BYTES" =~ ^[+-]?[0-9]+$ ]] || [[ "$BYTES" -gt "$((FILE_SIZE - OFFSET))" ]]; then
+        LOGE "Bytes value not valid: $BYTES"
+        return 1
+    fi
+
+    local READ
+    local LENGTH
+    READ="$(xxd -p -l "$BYTES" --skip "$OFFSET" "$FILE")"
+    LENGTH="${#READ}"
+
+    while [[ "$LENGTH" -gt 0 ]]; do
+        echo -n "${READ:$LENGTH-2:2}"
+        LENGTH="$((LENGTH - 2))"
+    done
+    echo ""
 }
 
 # SET_METADATA <partition> <file/dir> <user> <group> <mode> <label>
@@ -576,6 +638,90 @@ SET_METADATA()
     sed -i "/^\/$PATTERN /d" "$WORK_DIR/configs/file_context-$PARTITION"
 
     echo "/$(_HANDLE_SPECIAL_CHARS "$ENTRY") $LABEL" >> "$WORK_DIR/configs/file_context-$PARTITION"
+
+    return 0
+}
+
+# SET_PROP "<partition>" "<prop>" "<value>"
+# Sets the supplied prop to the desidered value, partition name CANNOT be omitted.
+# "-d" or "--delete" can be passed as value to delete the prop.
+SET_PROP()
+{
+    _CHECK_NON_EMPTY_PARAM "PARTITION" "$1" || return 1
+    _CHECK_NON_EMPTY_PARAM "PROP" "$2" || return 1
+
+    local PARTITION="$1"
+    local PROP="$2"
+    local VALUE="$3"
+
+    if ! IS_VALID_PARTITION_NAME "$PARTITION"; then
+        LOGE "\"$PARTITION\" is not a valid partition name"
+        return 1
+    fi
+
+    if [ "$(GET_PROP "$PARTITION" "$PROP")" ]; then
+        local FILES
+        FILES="$(_GET_PROP_LOCATION "$PARTITION" "$PROP")"
+
+        while IFS= read -r f; do
+            if [[ "$VALUE" == "-d" ]] || [[ "$VALUE" == "--delete" ]]; then
+                LOG "- Deleting \"$PROP\" prop in ${f//$WORK_DIR/}"
+                sed -i "/^$PROP/d" "$f"
+            else
+                LOG "- Replacing \"$PROP\" prop with \"$VALUE\" in ${f//$WORK_DIR/}"
+
+                local LINES
+                LINES="$(sed -n "/^${PROP}\b/=" "$f")"
+                for l in $LINES; do
+                    sed -i "$l c${PROP}=${VALUE}" "$f"
+                done
+            fi
+        done <<< "$FILES"
+    elif [[ "$VALUE" != "-d" ]] && [[ "$VALUE" != "--delete" ]]; then
+        local FILE
+
+        case "$PARTITION" in
+            "system")
+                FILE="$WORK_DIR/system/system/build.prop"
+                ;;
+            "system_ext")
+                if $TARGET_OS_BUILD_SYSTEM_EXT_PARTITION; then
+                    FILE="$WORK_DIR/system_ext/etc/build.prop"
+                else
+                    FILE="$WORK_DIR/system/system/system_ext/etc/build.prop"
+                fi
+                ;;
+            "system_dlkm")
+                FILE="$WORK_DIR/system_dlkm/etc/build.prop"
+                ;;
+            "vendor")
+                FILE="$WORK_DIR/vendor/build.prop"
+                ;;
+            "vendor_dlkm")
+                FILE="$WORK_DIR/vendor_dlkm/etc/build.prop"
+                ;;
+            "odm_dlkm")
+                FILE="$WORK_DIR/vendor/odm_dlkm/etc/build.prop"
+                ;;
+            "odm")
+                FILE="$WORK_DIR/odm/etc/build.prop"
+                ;;
+            "product")
+                FILE="$WORK_DIR/product/etc/build.prop"
+                ;;
+        esac
+
+        if [ ! -f "$FILE" ]; then
+            LOGW "File not found: ${FILE//$WORK_DIR/}"
+            return 0
+        fi
+
+        LOG "- Adding \"$PROP\" prop with \"$VALUE\" in ${FILE//$WORK_DIR/}"
+        if ! grep -q "Added by scripts" "$FILE"; then
+            echo "# Added by scripts/utils/module_utils.sh" >> "$FILE"
+        fi
+        echo "$PROP=$VALUE" >> "$FILE"
+    fi
 
     return 0
 }
