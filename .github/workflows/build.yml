@@ -107,16 +107,22 @@ jobs:
       - name: Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          ./scripts/make_rom.sh --force
+          ./scripts/make_rom.sh 
 
       - name: Upload to GoFile
+        id: gofile
         run: |
           ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
-          RESPONSE=$(curl -s -F "file=@$ZIP_FILE" -F "token=${{ secrets.GOFILE_TOKEN }}" -F "folderId=${{ secrets.GOFILE_FOLDER_ID }}" "https://upload-eu-par.gofile.io/uploadFile")
+          RESPONSE=$(curl -s -F "file=@$ZIP_FILE" "https://upload-na-phx.gofile.io/uploadFile")
+
+          DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r '.data.downloadPage')
+
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
 
           echo "Uploaded successfully! Download link:"
-          echo "$RESPONSE" | jq -r '.data.downloadPage'
+          echo "$DOWNLOAD_URL"
 
           echo "MD5:"
           md5sum "$ZIP_FILE"
