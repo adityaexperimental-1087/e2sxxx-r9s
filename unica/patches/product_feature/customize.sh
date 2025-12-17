@@ -61,7 +61,7 @@ if [[ "${SOURCE_PRODUCT_SHIPPING_API_LEVEL:-}" != "${TARGET_PRODUCT_SHIPPING_API
 
     SMALI_PATCH "system" "system/framework/services.jar" \
         "smali/com/android/server/SystemServer.smali" "replace" \
-        "startOtherServices(Lcom/android/server/utils/TimingsTraceAndSlog;)V" \
+        ".method public final startOtherServices(Lcom/android/server/utils/TimingsTraceAndSlog;)V" \
         "MAINLINE_API_LEVEL: $SOURCE_PRODUCT_SHIPPING_API_LEVEL" \
         "MAINLINE_API_LEVEL: $TARGET_PRODUCT_SHIPPING_API_LEVEL"
 
