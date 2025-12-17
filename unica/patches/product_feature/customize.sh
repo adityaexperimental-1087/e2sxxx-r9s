@@ -62,8 +62,6 @@ fi
 
 # Fingerprint sensor compatibility check
 if [[ "$(GET_FINGERPRINT_SENSOR_TYPE "${TARGET_FINGERPRINT_CONFIG_SENSOR:-}")" == "optical" ]]; then
-    ABORT "TARGET_COMMON_SUPPORT_DYN_RESOLUTION_CONTROL is not supported on targets with an optical fingerprint sensor"
-fi
 
 # Fingerprint config sensor migration
 if [[ "${SOURCE_FINGERPRINT_CONFIG_SENSOR:-}" != "${TARGET_FINGERPRINT_CONFIG_SENSOR:-}" ]]; then
